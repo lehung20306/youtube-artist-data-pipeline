@@ -25,6 +25,7 @@ Dữ liệu thô (raw) được kéo về gồm 4 file JSON, nhưng khi đưa l�
 * **channel_id (Primary Key):** Mã định danh duy nhất của kênh nghệ sĩ.
 * **channel_name, description, published_at:** Thông tin cơ bản của kênh.
 * **view_count, subscriber_count, video_count:** Các chỉ số tổng quan của kênh tại thời điểm quét.
+* **extract_at:** Thời gian cào dữ liệu (UTC).
 
 ### 2. Bảng `videos_data` (Thông tin & Thống kê Video):
 Bảng này được gộp (JOIN) từ 2 tập dữ liệu thô là `latest_videos` (danh sách tối đa 50 video mới nhất/kênh) và `video_statistics` (chỉ số của từng video).
@@ -32,13 +33,14 @@ Bảng này được gộp (JOIN) từ 2 tập dữ liệu thô là `latest_vide
 * **channel_id (Foreign Key):** Dùng để JOIN với bảng `channel_data`.
 * **title, description, published_at:** Thông tin chi tiết của video.
 * **view_count, like_count, comment_count:** Các chỉ số tương tác của video.
-* **extract_at:** Thời gian cào dữ liệu (được chuẩn hóa theo múi giờ Asia/Ho_Chi_Minh (UTC+7) trên máy ảo).
+* **extract_at:** Thời gian cào dữ liệu (UTC).
 
 ### 3. Bảng `video_comments` (Bình luận):
 Thu thập tối đa 30 bình luận Top cho mỗi video.
 * **comment_id (Primary Key):** Mã định danh bình luận.
 * **video_id (Foreign Key):** Liên kết với bảng `videos_data`.
 * **author_display_name, text_display, published_at:** Thông tin người bình luận và nội dung phản hồi của khán giả.
+* **extract_at:** Thời gian cào dữ liệu (UTC).
 
 ## Quy trình Vận hành ELT (Pipeline Workflow)
 Quá trình ELT được điều phối bởi file `main.py`, gọi lần lượt 3 module chính nằm trong thư mục `elt/`:
