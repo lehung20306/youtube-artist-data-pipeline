@@ -1,141 +1,58 @@
 YouTube Data ELT Pipeline
-
 Giới thiệu (Overview)
-
 Dự án này là một hệ thống ELT (Extract - Load - Transform) tự động được triển khai trên máy ảo Google Cloud Compute Engine (GCP VM).
 
 Mục tiêu cốt lõi của dự án là thu thập và phân tích dữ liệu từ các kênh YouTube của Top 100 nghệ sĩ US-UK có lượt xem cao nhất. Dữ liệu này sẽ giúp theo dõi mức độ tương tác, xu hướng phát hành và phản hồi của khán giả đối với các sản phẩm âm nhạc hàng đầu.
 
 Khác với mô hình ETL truyền thống, pipeline này áp dụng mô hình ELT hiện đại: Dữ liệu thô từ YouTube được tải (Load) trực tiếp lên kho dữ liệu, sau đó sức mạnh tính toán của Google BigQuery được tận dụng để thực thi các lệnh SQL làm sạch, gộp bảng và chuyển đổi (Transform) dữ liệu ngay trên Cloud.
-
 Kiến trúc & Công nghệ (Tech Stack)
-
 Ngôn ngữ: Python 3, Standard SQL
-
 Môi trường triển khai: Google Cloud Compute Engine (Ubuntu VM)
-
 Kho dữ liệu (Data Warehouse): Google BigQuery
-
 Nguồn dữ liệu: YouTube Data API v3
-
 Điều phối (Orchestration): Linux Cronjob
+Cấu trúc Dữ liệu (Data Architecture)
+Hệ thống lấy danh sách kênh từ tệp hạt giống (seed file) top100_artists_seed.csv và trích xuất dữ liệu thành 4 bảng thô (Raw Tables). Sau bước Load, quá trình Transform trên BigQuery sẽ hợp nhất và làm sạch dữ liệu thành 3 bảng chính (Core Tables):
 
-Chuẩn bị Dữ liệu (Data Preparation)
+dim_channel: Chứa thông tin tổng quan về kênh của 100 nghệ sĩ US-UK (Tên, ID, Lượt đăng ký, Tổng view, v.v.).
+fact_video: Bảng thống kê video đã được tối ưu. Đây là kết quả của việc gộp 2 bảng thô (raw_latest_videos và raw_video_statistics) bằng SQL. Bảng này lưu trữ siêu dữ liệu (Tiêu đề, Ngày đăng) cùng với các chỉ số hiệu suất của từng video (View, Like, Comment count).
+fact_comments: Chứa chi tiết hàng trăm nghìn bình luận từ người hâm mộ (Nội dung bình luận, Tác giả, Thời gian, Số lượt thích của bình luận).
+Hướng dẫn triển khai (Deployment Guide)
+1. Cấu hình môi trường (Environment Setup)
+# Clone dự án từ GitHub
 
-Hệ thống bắt đầu bằng việc đọc file seed (tệp hạt giống):
+git clone [YOUR_GITHUB_REPO_URL]
 
-data/top100_artists_seed.csv: File này chứa danh sách kênh YouTube (kèm theo Channel ID) của Top 100 nghệ sĩ US-UK. Mã nguồn sẽ tự động đọc file này bằng thư viện Pandas để lấy đầu vào cho quá trình Extract.
+cd youtube-artist-data-pipeline
 
-Cấu trúc Dữ liệu (Data Schema)
-
-Dữ liệu thô (raw) được kéo về gồm 4 file JSON, nhưng khi đưa lên BigQuery và qua bước Transform, chúng được tối ưu và gộp lại chỉ còn 3 bảng dữ liệu chính (Relational Schema). Hệ thống sử dụng ID làm khóa ngoại để tối ưu không gian lưu trữ (ví dụ: không lưu lại tên kênh trong bảng video).
-
-Bảng channel_data (Thông tin kênh):
-
-channel_id (Primary Key): Mã định danh duy nhất của kênh nghệ sĩ.
-
-channel_name, description, published_at: Thông tin cơ bản của kênh.
-
-view_count, subscriber_count, video_count: Các chỉ số tổng quan của kênh tại thời điểm quét.
-
-Bảng videos_data (Thông tin & Thống kê Video):
-
-Bảng này được gộp (JOIN) từ 2 tập dữ liệu thô là latest_videos (danh sách tối đa 50 video mới nhất/kênh) và video_statistics (chỉ số của từng video).
-
-video_id (Primary Key): Mã định danh duy nhất của video.
-
-channel_id (Foreign Key): Dùng để JOIN với bảng channel_data.
-
-title, description, published_at: Thông tin chi tiết của video.
-
-view_count, like_count, comment_count: Các chỉ số tương tác của video.
-
-extract_at: Thời gian cào dữ liệu (được chuẩn hóa theo múi giờ Asia/Ho_Chi_Minh (UTC+7) trên máy ảo).
-
-Bảng video_comments (Bình luận):
-
-Thu thập tối đa 30 bình luận Top cho mỗi video.
-
-comment_id (Primary Key): Mã định danh bình luận.
-
-video_id (Foreign Key): Liên kết với bảng videos_data.
-
-author_display_name, text_display, published_at: Thông tin người bình luận và nội dung phản hồi của khán giả.
-
-Quy trình Vận hành ELT (Pipeline Workflow)
-
-Quá trình ELT được điều phối bởi file main.py, gọi lần lượt 3 module chính nằm trong thư mục elt/:
-
-Extract (elt/extract.py):
-
-Kết nối với YouTube API v3.
-
-Quét qua danh sách các kênh từ file top100_artists_seed.csv.
-
-Lấy thông tin kênh, danh sách video mới nhất, số liệu thống kê (views, likes) và bình luận.
-
-Lưu dữ liệu trích xuất dưới dạng 4 file JSON thô (raw) vào thư mục data/raw/.
-
-Load (elt/load.py):
-
-Đọc các file JSON thô vừa được lưu ở bước Extract.
-
-Tải (Upload) trực tiếp toàn bộ dữ liệu này vào các bảng tạm (staging tables) trên Google BigQuery.
-
-Transform (elt/transform.py):
-
-Gửi các câu lệnh SQL trực tiếp lên BigQuery để xử lý.
-
-Các lệnh SQL sẽ làm nhiệm vụ: chuẩn hóa kiểu dữ liệu, xử lý trùng lặp và đặc biệt là JOIN 2 bảng danh sách video và thống kê video lại thành 1 bảng videos_data duy nhất.
-
-Cấu trúc thư mục (Project Structure)
-
-Big_Project1/
-├── venv/                   # Môi trường ảo Python
-├── data/
-│   ├── raw/                # Chứa các file JSON dữ liệu thô (channel, video, comments...)
-│   └── top100_artists_seed.csv # File danh sách Top 100 nghệ sĩ US-UK
-├── elt/
-│   ├── __init__.py
-│   ├── extract.py          # Script kéo dữ liệu từ YouTube API
-│   ├── load.py             # Script đẩy dữ liệu JSON lên BQ
-│   └── transform.py        # Script chạy SQL trên BigQuery để làm sạch, gộp bảng
-├── utils/                  # Các module hỗ trợ (file I/O)
-├── main.py                 # File chính điều phối luồng E-L-T
-├── run_elt.sh              # Shell script để tự động hóa quy trình
-├── elt_cron.log            # File ghi nhận lịch sử và lỗi khi chạy ngầm
-├── requirements.txt        # Danh sách thư viện Python
-└── README.md               # Tài liệu dự án
-
-
-Hướng dẫn cài đặt & Chạy tự động (Deployment)
-
-Cài đặt môi trường:
+# Tạo và kích hoạt môi trường ảo
 
 python3 -m venv venv
+
 source venv/bin/activate
+
+# Cài đặt thư viện
+
 pip install -r requirements.txt
+2. Thiết lập bảo mật (.env)
+Tạo file .env tại thư mục gốc và khai báo thông tin xác thực:
 
+API_KEY=YOUR_YOUTUBE_API_KEY
 
-Cấu hình môi trường:
-Tạo file .env tại thư mục gốc và cung cấp API_KEY của YouTube Data API. Đảm bảo máy ảo VM đã được cấp quyền (Scopes) truy cập BigQuery.
+(Lưu ý: Service account JSON cho BigQuery được đặt riêng theo cấu hình mã nguồn).
+3. Cấu hình tự động hóa (Cronjob)
+Theo yêu cầu dự án, pipeline được lập lịch chạy ngầm 2 lần mỗi ngày (07:00 sáng và 23:00 đêm) trên máy ảo VM.
 
-Cấp quyền cho file chạy tự động:
+Đảm bảo script có quyền thực thi: chmod +x run_elt.sh
+Mở crontab: crontab -e
+Thêm cấu hình sau:
 
-chmod +x run_elt.sh
+# Chạy pipeline lúc 07:00 sáng mỗi ngày
 
+0 7 * * * /home/hung/Project/Big_Project1/run_elt.sh
 
-Lịch trình tự động (Cronjob):
-Hệ thống chạy tự động ngầm trên máy ảo thông qua Cronjob. Xem và thiết lập bằng lệnh:
+# Chạy pipeline lúc 23:00 đêm mỗi ngày
 
-crontab -e
-
-
-Ví dụ lịch chạy (2:00 sáng và 2:00 chiều mỗi ngày):
-0 2,14 * * * /home/hung/Project/Big_Project1/run_elt.sh
-
+0 23 * * * /home/hung/Project/Big_Project1/run_elt.sh
 Theo dõi (Monitoring)
-
-Kiểm tra tiến trình chạy hoặc debug lỗi (nếu có) thông qua file log:
-
-tail -f elt_cron.log
+Mọi kết quả và lỗi sinh ra trong quá trình chạy tự động sẽ được hệ thống ghi nhận chi tiết tại tệp elt_cron.log trên VM. Lệnh kiểm tra: cat elt_cron.log
